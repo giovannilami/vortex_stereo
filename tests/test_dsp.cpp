@@ -197,6 +197,18 @@ TEST(filter1_reset)
     ASSERT_NEAR(f.z, 0.0f, 1e-6f);
 }
 
+TEST(filter1_coefficient_copy_preserves_state)
+{
+    vortex::Filter1 source, target;
+    vortex::filter1_configure_lp(source, 48000.0f, 1234.0f);
+    target.z = 0.25f;
+    vortex::filter1_copy_coefficients(source, target);
+
+    ASSERT(source.b0 == target.b0);
+    ASSERT(source.b1 == target.b1);
+    ASSERT(target.z == 0.25f);
+}
+
 // --- Second-order filter tests ---
 
 TEST(filter2_lp_passes_dc)
@@ -330,6 +342,74 @@ TEST(filter2_reset)
     ASSERT_NEAR(f.z1, 0.0f, 1e-6f);
 }
 
+TEST(filter2_coefficient_copy_preserves_state)
+{
+    vortex::Filter2 source, target;
+    vortex::filter2_configure(source, 48000.0f, 1234.0f, 0.31f, vortex::F2_NOTCH);
+    target.z0 = 0.25f;
+    target.z1 = -0.5f;
+    vortex::filter2_copy_coefficients(source, target);
+
+    ASSERT(source.b0 == target.b0);
+    ASSERT(source.b1 == target.b1);
+    ASSERT(source.b2 == target.b2);
+    ASSERT(source.b3 == target.b3);
+    ASSERT(target.z0 == 0.25f);
+    ASSERT(target.z1 == -0.5f);
+}
+
+TEST(filter2_cached_static_configuration_is_identical)
+{
+    vortex::Filter2 reference, cached;
+    vortex::filter2_configure(cached, 48000.0f, 1750.0f, 0.42f, vortex::F2_LP);
+
+    for (int i = 0; i < 4096; ++i) {
+        vortex::filter2_configure(reference, 48000.0f, 1750.0f, 0.42f, vortex::F2_LP);
+        float input = sinf(2.0f * vortex::PI * 317.0f * (float)i / 48000.0f);
+        float referenceOut = vortex::filter2_process(reference, input, vortex::F2_LP);
+        float cachedOut = vortex::filter2_process(cached, input, vortex::F2_LP);
+        ASSERT(referenceOut == cachedOut);
+    }
+}
+
+TEST(filter2_cascade_copied_coefficients_are_identical)
+{
+    vortex::Filter2 configuredTwiceA, configuredTwiceB;
+    vortex::Filter2 configuredOnceA, copiedB;
+
+    vortex::filter2_configure(configuredTwiceA, 48000.0f, 2400.0f, 0.2f, vortex::F2_AP);
+    vortex::filter2_configure(configuredTwiceB, 48000.0f, 2400.0f, 0.2f, vortex::F2_AP);
+    vortex::filter2_configure(configuredOnceA, 48000.0f, 2400.0f, 0.2f, vortex::F2_AP);
+    vortex::filter2_copy_coefficients(configuredOnceA, copiedB);
+
+    for (int i = 0; i < 4096; ++i) {
+        float input = sinf(2.0f * vortex::PI * 701.0f * (float)i / 48000.0f);
+        float reference = vortex::filter2_process(configuredTwiceA, input, vortex::F2_AP);
+        reference = vortex::filter2_process(configuredTwiceB, reference, vortex::F2_AP);
+        float optimized = vortex::filter2_process(configuredOnceA, input, vortex::F2_AP);
+        optimized = vortex::filter2_process(copiedB, optimized, vortex::F2_AP);
+        ASSERT(reference == optimized);
+    }
+}
+
+TEST(stereo_filter_states_are_independent)
+{
+    vortex::Filter2 left, right;
+    vortex::filter2_configure(left, 48000.0f, 1100.0f, 0.4f, vortex::F2_LP);
+    vortex::filter2_copy_coefficients(left, right);
+
+    float leftOut = 0.0f;
+    float rightOut = 0.0f;
+    for (int i = 0; i < 2048; ++i) {
+        leftOut = vortex::filter2_process(left, 1.0f, vortex::F2_LP);
+        rightOut = vortex::filter2_process(right, 0.0f, vortex::F2_LP);
+    }
+
+    ASSERT_NEAR(leftOut, 1.0f, 0.001f);
+    ASSERT_NEAR(rightOut, 0.0f, 0.000001f);
+    ASSERT(left.z0 != right.z0 || left.z1 != right.z1);
+}
+
 int main()
 {
     printf("Vortex DSP Tests\n");
@@ -360,6 +440,7 @@ int main()
     run_filter1_lp_attenuates_high_freq();
     run_filter1_hp_attenuates_low_freq();
     run_filter1_reset();
+    run_filter1_coefficient_copy_preserves_state();
 
     printf("\nSecond-order filter:\n");
     run_filter2_lp_passes_dc();
@@ -371,6 +452,10 @@ int main()
     run_filter2_resonance_peak();
     run_filter2_cascade_steeper();
     run_filter2_reset();
+    run_filter2_coefficient_copy_preserves_state();
+    run_filter2_cached_static_configuration_is_identical();
+    run_filter2_cascade_copied_coefficients_are_identical();
+    run_stereo_filter_states_are_independent();
 
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
