@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cmath>
-#include <cstdint>
+#include <math.h>
+#include <stdint.h>
 
 namespace vortex {
 
@@ -101,6 +101,12 @@ struct Filter1
     }
 };
 
+inline void filter1_copy_coefficients(const Filter1& source, Filter1& target)
+{
+    target.b0 = source.b0;
+    target.b1 = source.b1;
+}
+
 // Configure first-order low-pass coefficients
 // Uses Sigma frequency warping for audio-rate modulation quality
 inline void filter1_configure_lp(Filter1& f, float sample_rate, float cutoff_hz)
@@ -171,6 +177,16 @@ struct Filter2
     }
 };
 
+// Cascaded stages use identical coefficients but independent state. Copying
+// only the coefficients avoids repeating the expensive configuration math.
+inline void filter2_copy_coefficients(const Filter2& source, Filter2& target)
+{
+    target.b0 = source.b0;
+    target.b1 = source.b1;
+    target.b2 = source.b2;
+    target.b3 = source.b3;
+}
+
 // Configure second-order filter coefficients
 // Uses Sigma frequency warping for audio-rate modulation quality
 // damping = 1/(2*Q), e.g. 0.707 = Butterworth, lower = more resonant
@@ -191,7 +207,8 @@ inline void filter2_configure(Filter2& f, float sample_rate, float cutoff_hz,
     float v = sqrtf(w_sq * w_sq + sigma_sq * (2.0f * t + sigma_sq));
     float k = t + sigma_sq;
 
-    f.b0 = 1.0f / (v + sqrtf(v + k) + 0.5f);
+    float sqrt_v_plus_k = sqrtf(v + k);
+    f.b0 = 1.0f / (v + sqrt_v_plus_k + 0.5f);
     f.b1 = sqrtf(2.0f * v);
 
     switch (type)
@@ -214,7 +231,7 @@ inline void filter2_configure(Filter2& f, float sample_rate, float cutoff_hz,
         break;
     case F2_AP:
         f.b2 = f.b1;
-        f.b3 = 0.5f + v - sqrtf(v + k);
+        f.b3 = 0.5f + v - sqrt_v_plus_k;
         break;
     }
 }
